@@ -249,12 +249,28 @@ def parse_rows_from_tokens(tokens: list[str]) -> list[ParsedRow]:
             i += 1
 
         name = " ".join(name_parts).strip()
-        if symbol and name:
+        # Guards against a header block that strip_boilerplate failed to
+        # remove (e.g. NGX reflowed the column header text between
+        # bulletin issues, so the exact-match HEADER_BLOCK no longer
+        # applies) — the un-stripped header then reads as one giant
+        # "company name" for whatever token happened to precede it,
+        # which also steals the real row's price/date/volume data. A
+        # genuine NGX company name is never anywhere near this long, so
+        # treat it as corrupted and drop it rather than store garbage
+        # under a real ticker or crash the whole day's ingestion on one
+        # bad section (`name` is varchar(255) — this would exceed that).
+        if symbol and name and len(name) <= 120:
             rows.append(ParsedRow(
                 symbol=symbol, name=name,
                 business_done_date=business_done_date,
                 volume=volume, last_price=last_price,
             ))
+        elif symbol and name:
+            log.warning(
+                "Dropping row for %r — name is %d chars, looks like an "
+                "un-stripped header block rather than a company name: %r...",
+                symbol, len(name), name[:80],
+            )
 
     return rows
 
