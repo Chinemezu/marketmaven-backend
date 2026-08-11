@@ -1,0 +1,11 @@
+# Backend (Python)
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/**/*.db
+backend/.env
+*.egg-info/
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
