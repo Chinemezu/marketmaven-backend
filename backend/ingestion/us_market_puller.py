@@ -77,7 +77,12 @@ def pull_us_peer_prices(target_date: date | None = None) -> None:
     with get_session() as db:
         us_issuers = (
             db.query(Issuer)
-            .filter(Issuer.exchange.in_(["NYSE", "NASDAQ"]))
+            # peer_mappings seeds a stub Issuer under "US" when it can't
+            # find one already registered as NYSE/NASDAQ (see
+            # populate_peer_mappings.py's _get_or_create_issuer) — match
+            # that here too, or every peer-seeded ticker gets silently
+            # skipped.
+            .filter(Issuer.exchange.in_(["NYSE", "NASDAQ", "US"]))
             .all()
         )
         if not us_issuers:
