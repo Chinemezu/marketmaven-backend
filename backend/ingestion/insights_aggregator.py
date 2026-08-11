@@ -197,12 +197,25 @@ def upsert_insights(items: list[dict]) -> int:
 
 def run(feeds_by_vertical: dict[str, dict[str, str]] = FEEDS) -> None:
     all_items = []
+    seen_urls: set[str] = set()
     for vertical, feeds in feeds_by_vertical.items():
         if not feeds:
             log.info("Skipping vertical '%s' — no feeds sourced yet", vertical)
             continue
         for name, url in feeds.items():
-            all_items.extend(fetch_and_score(name, url, vertical))
+            for item in fetch_and_score(name, url, vertical):
+                # A couple of feeds (e.g. OilPrice.com) are deliberately
+                # listed under more than one vertical, so the same article
+                # can come back twice in one run. `url` is unique in the
+                # DB and this whole batch is inserted together, so an
+                # in-batch duplicate would fail the same way an
+                # already-stored one wouldn't (upsert_insights only
+                # de-dupes against what's already committed) — keep
+                # whichever vertical saw it first.
+                if item["url"] in seen_urls:
+                    continue
+                seen_urls.add(item["url"])
+                all_items.append(item)
             sleep(REQUEST_DELAY_SECONDS)
 
     inserted = upsert_insights(all_items)
