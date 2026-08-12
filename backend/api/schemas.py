@@ -91,6 +91,7 @@ class ReportOut(BaseModel):
     cover_image_url: str | None = None
     status: str  # "draft" | "published" — always "published" on the public /reports list
     featured: bool
+    featured_order: int | None = None
     published_at: datetime | None = None
 
 
@@ -104,6 +105,9 @@ class ReportCreateIn(BaseModel):
     summary: str
     body: str
     cover_image_url: str | None = None
+    status: str | None = None  # "draft" (default) | "published" — publishing sets published_at
+    featured: bool | None = None
+    featured_order: int | None = None
 
 
 class ReportUpdateIn(BaseModel):

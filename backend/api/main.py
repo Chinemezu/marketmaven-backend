@@ -320,7 +320,8 @@ def _report_out(report: Report, detail: bool = False):
         author_name=report.author.email.split("@")[0],  # display name — swap for a real name field on User if one gets added later
         vertical=report.vertical, summary=report.summary,
         cover_image_url=report.cover_image_url, status=report.status,
-        featured=report.featured, published_at=report.published_at,
+        featured=report.featured, featured_order=report.featured_order,
+        published_at=report.published_at,
     )
     if detail:
         data["body"] = report.body
@@ -368,11 +369,19 @@ def admin_create_report(payload: ReportCreateIn, admin: User = Depends(get_curre
     if db.query(Report).filter(Report.slug == slug).one_or_none():
         slug = f"{slug}-{auth_utils.generate_token(4)}"
 
+    status = payload.status or "draft"
     report = Report(
         slug=slug, title=payload.title, author_id=admin.id, vertical=payload.vertical,
         summary=payload.summary, body=payload.body, cover_image_url=payload.cover_image_url,
-        status="draft",
+        status=status, featured=payload.featured or False, featured_order=payload.featured_order,
     )
+    # Same publish-sets-published_at behavior as admin_update_report,
+    # otherwise a report created directly as "published" (the admin form's
+    # normal one-step flow) would have no published_at and never appear
+    # in GET /reports, which orders by it.
+    if status == "published":
+        report.published_at = datetime.now(timezone.utc)
+
     db.add(report)
     db.commit()
     db.refresh(report)
