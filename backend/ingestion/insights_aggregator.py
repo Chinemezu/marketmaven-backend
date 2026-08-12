@@ -26,6 +26,7 @@ from pathlib import Path
 from time import mktime, sleep
 
 import feedparser
+import requests
 
 sys.path.append(str(Path(__file__).resolve().parent.parent / "api"))
 from database import get_session   # noqa: E402
@@ -185,6 +186,43 @@ def extract_image_url(entry) -> str | None:
     return None
 
 
+_OG_IMAGE = re.compile(
+    r'<meta[^>]+(?:property|name)=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']'
+    r'|<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\']og:image["\']',
+    re.IGNORECASE,
+)
+OG_IMAGE_TIMEOUT_SECONDS = 5
+OG_IMAGE_READ_CAP_BYTES = 65536  # og:image lives in <head>, no need to pull the whole page
+OG_IMAGE_USER_AGENT = "MarketMaven/1.0 (+https://marketmaven-api.onrender.com; news aggregator)"
+
+
+def fetch_og_image(article_url: str) -> str | None:
+    """Fallback for sources whose RSS entry has no image at all
+    (extract_image_url() already covers what the feed itself provides) —
+    fetches just enough of the article's own page to read its Open Graph
+    image tag, which is present on nearly every modern news page even when
+    the RSS feed is stripped down. Real image the publisher put on their
+    own page, not invented. Capped and timed out aggressively since this
+    now runs per-article rather than per-feed."""
+    try:
+        resp = requests.get(
+            article_url,
+            headers={"User-Agent": OG_IMAGE_USER_AGENT},
+            timeout=OG_IMAGE_TIMEOUT_SECONDS,
+            stream=True,
+        )
+        chunk = next(resp.iter_content(chunk_size=OG_IMAGE_READ_CAP_BYTES, decode_unicode=False), b"")
+        resp.close()
+    except requests.RequestException as exc:
+        log.warning("og:image fetch failed for %s: %s", article_url, exc)
+        return None
+
+    match = _OG_IMAGE.search(chunk.decode("utf-8", errors="ignore"))
+    if not match:
+        return None
+    return match.group(1) or match.group(2)
+
+
 def fetch_and_score(source_name: str, feed_url: str, vertical: str) -> list[dict]:
     parsed = feedparser.parse(feed_url)
 
@@ -205,6 +243,14 @@ def fetch_and_score(source_name: str, feed_url: str, vertical: str) -> list[dict
         if score < MIN_RELEVANCE_TO_STORE:
             continue
 
+        # extract_image_url is free (already-downloaded feed data); only
+        # fall through to fetching the article's own page — a real network
+        # request per article — for the sources whose feed genuinely has
+        # nothing, and only for articles that already cleared the
+        # relevance bar (no point spending a request on something we're
+        # about to discard).
+        image_url = extract_image_url(entry) or fetch_og_image(url)
+
         results.append({
             "source": source_name,
             "vertical": vertical,
@@ -212,7 +258,7 @@ def fetch_and_score(source_name: str, feed_url: str, vertical: str) -> list[dict
             "url": url,
             "published_date": _parse_published(entry),
             "summary": summary,
-            "image_url": extract_image_url(entry),
+            "image_url": image_url,
             "relevance_score": score,
             "matched_keywords": ", ".join(matched),
         })
