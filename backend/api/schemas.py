@@ -2,7 +2,7 @@
 API's public shape can evolve independently of the storage schema."""
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, computed_field
 
 
 class IssuerOut(BaseModel):
@@ -89,6 +89,7 @@ class ReportOut(BaseModel):
     vertical: str
     summary: str
     cover_image_url: str | None = None
+    status: str  # "draft" | "published" — always "published" on the public /reports list
     featured: bool
     published_at: datetime | None = None
 
@@ -160,6 +161,13 @@ class UserOut(BaseModel):
     email: str
     is_verified: bool
     is_admin: bool
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def name(self) -> str:
+        # There's no display-name field on User — same email-prefix
+        # convention _report_out() already uses for author_name.
+        return self.email.split("@")[0]
 
 
 class TokenOut(BaseModel):

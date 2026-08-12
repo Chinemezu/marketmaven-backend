@@ -319,8 +319,8 @@ def _report_out(report: Report, detail: bool = False):
         id=report.id, slug=report.slug, title=report.title,
         author_name=report.author.email.split("@")[0],  # display name — swap for a real name field on User if one gets added later
         vertical=report.vertical, summary=report.summary,
-        cover_image_url=report.cover_image_url, featured=report.featured,
-        published_at=report.published_at,
+        cover_image_url=report.cover_image_url, status=report.status,
+        featured=report.featured, published_at=report.published_at,
     )
     if detail:
         data["body"] = report.body
@@ -351,6 +351,15 @@ def get_report(slug: str, db: Session = Depends(get_db)):
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
     return _report_out(report, detail=True)
+
+
+@app.get("/admin/reports", response_model=list[ReportOut])
+def admin_list_reports(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """Unlike GET /reports, includes drafts — backs the admin panel's
+    report list, which needs to show unpublished work in progress."""
+    stmt = select(Report).order_by(Report.updated_at.desc())
+    reports = db.execute(stmt).scalars().all()
+    return [_report_out(r) for r in reports]
 
 
 @app.post("/admin/reports", response_model=ReportDetailOut)
