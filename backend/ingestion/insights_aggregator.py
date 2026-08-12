@@ -144,6 +144,47 @@ def _clean_summary(raw: str | None) -> str | None:
     return text[:1000]  # keep it a summary, not the full article body
 
 
+_IMG_TAG_SRC = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']')
+
+
+def extract_image_url(entry) -> str | None:
+    """Best-effort real image extraction — several different feed
+    conventions are in use across the configured sources, so this tries
+    each in turn and returns None (not a stock photo) if the feed genuinely
+    doesn't provide one. Checked against real output from every configured
+    feed: media:content/media:thumbnail cover Cointelegraph/CoinDesk/BabyPips,
+    embedded <img> covers WordPress feeds like BusinessDay. Several sources
+    (Nairametrics, CNBC, MarketWatch, HousingWire, OilPrice.com) provide
+    neither as of this writing — those stay None and the frontend falls
+    back to its generic placeholder rather than this making something up."""
+    media_content = entry.get("media_content")
+    if media_content:
+        url = media_content[0].get("url")
+        if url:
+            return url
+
+    media_thumbnail = entry.get("media_thumbnail")
+    if media_thumbnail:
+        url = media_thumbnail[0].get("url")
+        if url:
+            return url
+
+    for link in entry.get("links", []):
+        if link.get("rel") == "enclosure" and str(link.get("type", "")).startswith("image/"):
+            return link.get("href")
+
+    for field in ("summary", "content"):
+        value = entry.get(field)
+        if field == "content" and value:
+            value = value[0].get("value")
+        if value:
+            match = _IMG_TAG_SRC.search(value)
+            if match:
+                return match.group(1)
+
+    return None
+
+
 def fetch_and_score(source_name: str, feed_url: str, vertical: str) -> list[dict]:
     parsed = feedparser.parse(feed_url)
 
@@ -171,6 +212,7 @@ def fetch_and_score(source_name: str, feed_url: str, vertical: str) -> list[dict
             "url": url,
             "published_date": _parse_published(entry),
             "summary": summary,
+            "image_url": extract_image_url(entry),
             "relevance_score": score,
             "matched_keywords": ", ".join(matched),
         })
@@ -189,6 +231,8 @@ def upsert_insights(items: list[dict]) -> int:
                 # score current even for articles we've already stored
                 exists.relevance_score = item["relevance_score"]
                 exists.matched_keywords = item["matched_keywords"]
+                if exists.image_url is None and item["image_url"]:
+                    exists.image_url = item["image_url"]
                 continue
             db.add(Insight(**item))
             inserted += 1

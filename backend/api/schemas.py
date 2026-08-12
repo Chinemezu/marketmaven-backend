@@ -58,6 +58,7 @@ class InsightOut(BaseModel):
     url: str
     published_date: datetime | None = None
     summary: str | None = None
+    image_url: str | None = None
     relevance_score: int
     featured: bool
 
@@ -219,6 +220,7 @@ class SavedArticleOut(BaseModel):
     url: str
     published_date: datetime | None = None
     summary: str | None = None
+    image_url: str | None = None
     saved_at: datetime
 
 

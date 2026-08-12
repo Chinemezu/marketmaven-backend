@@ -232,7 +232,7 @@ def get_saved_articles(user: User = Depends(get_current_user), db: Session = Dep
         SavedArticleOut(
             id=insight.id, source=insight.source, vertical=insight.vertical, title=insight.title,
             url=insight.url, published_date=insight.published_date, summary=insight.summary,
-            saved_at=saved.saved_at,
+            image_url=insight.image_url, saved_at=saved.saved_at,
         )
         for saved, insight in rows
     ]

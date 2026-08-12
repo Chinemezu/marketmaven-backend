@@ -99,6 +99,12 @@ class Insight(Base):
     url: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     published_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Only populated when the source feed actually provides one (media:content,
+    # media:thumbnail, an enclosure, or an <img> embedded in the summary/content
+    # HTML) — see insights_aggregator.py's extract_image_url(). Left null rather
+    # than filled with a stock photo when the feed has nothing; the frontend
+    # falls back to a generic placeholder in that case.
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     relevance_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     matched_keywords: Mapped[str | None] = mapped_column(String(300), nullable=True)  # comma-separated
     # Hybrid curation: relevance_score drives the algorithmic base ranking;
