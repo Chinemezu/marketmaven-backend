@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session, aliased
 from database import get_db
 from models import (
     Issuer, PriceDaily, IndexDaily, Filing, Insight, PeerMapping, NewsletterSignup,
-    User, WatchlistItem, SavedArticle, Report,
+    User, WatchlistItem, SavedArticle, Report, EconomicIndicator,
 )
 import auth as auth_utils
 import mailer
@@ -34,6 +34,7 @@ from schemas import (
     ResetPasswordIn, MessageOut, WatchlistItemOut, WatchlistAddIn,
     SavedArticleOut, AdminFeatureIn, NewsletterBroadcastIn, NewsletterBroadcastOut,
     ReportOut, ReportDetailOut, ReportCreateIn, ReportUpdateIn, EditorsPickOut, ReportSendNewsletterOut,
+    EconomicIndicatorOut,
 )
 
 app = FastAPI(title="Marketmaven API", version="0.1.0")
@@ -277,13 +278,22 @@ def admin_set_featured(
     admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Backs the admin panel's feature/pin control — this is the manual
-    half of the hybrid curation model."""
+    """Backs the admin panel's feature/pin control (the manual half of the
+    hybrid curation model) and, doubling as the one admin-insight-editing
+    endpoint rather than a parallel one, setting editorial_note -- original
+    MarketMaven commentary layered on top of the aggregated story.
+
+    Partial update (exclude_unset), same convention as admin_update_report:
+    a call that only sends editorial_note shouldn't also need to resend the
+    current featured/featured_order state just to avoid resetting it."""
     insight = db.get(Insight, insight_id)
     if insight is None:
         raise HTTPException(status_code=404, detail="Article not found")
-    insight.featured = payload.featured
-    insight.featured_order = payload.featured_order
+
+    updates = payload.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(insight, field, value)
+
     db.commit()
     db.refresh(insight)
     return insight
@@ -557,6 +567,24 @@ def list_filings(
     stmt = stmt.order_by(Filing.filing_date.desc())
 
     return db.execute(stmt).scalars().all()
+
+
+@app.get("/economic-indicators", response_model=list[EconomicIndicatorOut])
+def list_economic_indicators(
+    series_code: str | None = Query(None, description="e.g. 'UNRATE', 'CPIAUCSL' — omit for all tracked series"),
+    limit: int = Query(24, le=100, description="Most recent N observations per series is bounded by this across the whole response, not per series"),
+    db: Session = Depends(get_db),
+):
+    """US-only (see EconomicIndicator's model docstring for why) — sourced
+    from FRED via ingestion/fred_puller.py. Ordered newest-first per
+    series so the frontend can show a real trend, not just the latest
+    point, once enough observations have accumulated."""
+    stmt = select(EconomicIndicator)
+    if series_code:
+        stmt = stmt.where(EconomicIndicator.series_code == series_code)
+    stmt = stmt.order_by(EconomicIndicator.series_code, EconomicIndicator.date.desc())
+
+    return db.execute(stmt.limit(limit)).scalars().all()
 
 
 @app.get("/insights", response_model=list[InsightOut])

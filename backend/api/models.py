@@ -113,6 +113,11 @@ class Insight(Base):
     # sequenced deliberately (lower = higher up) rather than by score.
     featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     featured_order: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Original MarketMaven analysis layered on top of an aggregated story --
+    # not a substitute for it. The summary/url stay exactly as ingested;
+    # this is admin-authored commentary shown alongside them, distinct from
+    # (and not a replacement for) republishing the source article itself.
+    editorial_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -212,4 +217,26 @@ class PeerMapping(Base):
 
     __table_args__ = (
         UniqueConstraint("ngx_issuer_id", "us_peer_issuer_id", name="uq_peer_mapping_pair"),
+    )
+
+
+class EconomicIndicator(Base):
+    """Sourced from FRED (Federal Reserve Economic Data) — see
+    ingestion/fred_puller.py. US-only: FRED has no Nigerian-economy
+    equivalent series, and there's no other source wired up for one yet
+    (country exists as a column for whenever that changes, not because
+    non-US data is already here — don't let the frontend imply otherwise)."""
+    __tablename__ = "economic_indicators"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    series_code: Mapped[str] = mapped_column(String(30), nullable=False, index=True)  # FRED series ID, e.g. "UNRATE"
+    name: Mapped[str] = mapped_column(String(200), nullable=False)  # real FRED series title, not hardcoded here
+    value: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    country: Mapped[str] = mapped_column(String(2), nullable=False, default="US")
+    unit: Mapped[str] = mapped_column(String(50), nullable=False)  # real FRED units string, e.g. "Percent"
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("series_code", "date", name="uq_economic_indicator_series_date"),
     )

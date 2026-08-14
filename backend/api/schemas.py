@@ -59,6 +59,7 @@ class InsightOut(BaseModel):
     published_date: datetime | None = None
     summary: str | None = None
     image_url: str | None = None
+    editorial_note: str | None = None
     relevance_score: int
     featured: bool
 
@@ -77,6 +78,17 @@ class PeerMappingOut(BaseModel):
 class SourceRank(BaseModel):
     source: str
     article_count: int
+
+
+class EconomicIndicatorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    series_code: str
+    name: str
+    value: float
+    date: date
+    country: str
+    unit: str
 
 
 # --- Reports (first-party editorial content) ---
@@ -221,14 +233,22 @@ class SavedArticleOut(BaseModel):
     published_date: datetime | None = None
     summary: str | None = None
     image_url: str | None = None
+    editorial_note: str | None = None
     saved_at: datetime
 
 
 # --- Admin ---
 
 class AdminFeatureIn(BaseModel):
-    featured: bool
+    # Partial update, same convention as ReportUpdateIn -- only fields
+    # actually present in the request get applied (see admin_set_featured's
+    # use of exclude_unset). Was featured: bool (always required, always
+    # applied) before editorial_note was added; making it optional too so
+    # setting just the note doesn't force the caller to resend the current
+    # featured state to avoid accidentally resetting it.
+    featured: bool | None = None
     featured_order: int | None = None
+    editorial_note: str | None = None
 
 
 class NewsletterBroadcastIn(BaseModel):
