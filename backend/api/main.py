@@ -610,6 +610,17 @@ def top_sources(
     return [SourceRank(source=source, article_count=count) for source, count in rows]
 
 
+@app.get("/insights/{insight_id}", response_model=InsightOut)
+def get_insight(insight_id: int, db: Session = Depends(get_db)):
+    """Single-item lookup — needed for direct/shared article links to
+    resolve regardless of whether the article is still in the default
+    /insights list results (it can scroll out of the top N quickly)."""
+    insight = db.get(Insight, insight_id)
+    if insight is None:
+        raise HTTPException(status_code=404, detail="Insight not found")
+    return insight
+
+
 @app.post("/newsletter-signup", response_model=NewsletterSignupOut)
 def newsletter_signup(payload: NewsletterSignupIn, db: Session = Depends(get_db)):
     """Lightweight email capture for the hero band and footer signup —
