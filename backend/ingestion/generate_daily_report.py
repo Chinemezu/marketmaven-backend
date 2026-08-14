@@ -239,7 +239,7 @@ def notify_admin(report_title: str, report_id: int) -> None:
     if not ADMIN_NOTIFICATION_EMAIL:
         log.info("ADMIN_NOTIFICATION_EMAIL not set — skipping review notification")
         return
-    review_url = f"{FRONTEND_BASE_URL}/admin-reports"
+    review_url = f"{FRONTEND_BASE_URL}/admin/reports"  # matches the real path Header.tsx navigates to for the admin panel
     html = f"""
     <p>A new automated draft report is ready for review:</p>
     <p><strong>{report_title}</strong></p>
