@@ -29,6 +29,7 @@ import auth as auth_utils
 import mailer
 from schemas import (
     IssuerOut, PriceOut, IndexOut, FilingOut, InsightOut, PeerMappingOut,
+    AdminPeerMappingOut, PeerMappingCreateIn,
     SourceRank, NewsletterSignupIn, NewsletterSignupOut, BenchmarkPoint,
     UserRegisterIn, UserLoginIn, UserOut, TokenOut, ForgotPasswordIn,
     ResetPasswordIn, MessageOut, WatchlistItemOut, WatchlistAddIn,
@@ -593,6 +594,7 @@ def list_insights(
     min_score: int = Query(1, description="Minimum relevance score to include"),
     sort: str = Query("relevance", description="'relevance' (featured-first, then score) or 'recent' (pure published_date)"),
     limit: int = Query(20, le=100),
+    offset: int = Query(0, ge=0, description="Pagination offset — e.g. the admin panel's full insights table, which needs to page past the 100-row limit rather than being capped at it"),
     db: Session = Depends(get_db),
 ):
     """Backs two different UI needs with one endpoint:
@@ -616,7 +618,7 @@ def list_insights(
             Insight.published_date.desc(),
         )
 
-    return db.execute(stmt.limit(limit)).scalars().all()
+    return db.execute(stmt.offset(offset).limit(limit)).scalars().all()
 
 
 @app.get("/insights/top-sources", response_model=list[SourceRank])
@@ -695,6 +697,95 @@ def list_peer_mappings(
         )
         for mapping, ngx, us in rows
     ]
+
+
+def _get_or_create_issuer(db: Session, ticker: str, exchange: str) -> Issuer:
+    """Same convention as populate_peer_mappings.py's helper of the same
+    name (that script isn't importable here without pulling in the whole
+    ingestion path, so this is a deliberate duplicate, not a refactor into
+    a shared module) — creates a minimal stub if the ticker hasn't been
+    touched by any ingestion job yet, so an admin can add a mapping ahead
+    of that."""
+    issuer = db.query(Issuer).filter(Issuer.ticker == ticker, Issuer.exchange == exchange).one_or_none()
+    if issuer is None:
+        issuer = Issuer(name=ticker, ticker=ticker, exchange=exchange)
+        db.add(issuer)
+        db.flush()
+    return issuer
+
+
+@app.get("/admin/peer-mappings", response_model=list[AdminPeerMappingOut])
+def admin_list_peer_mappings(admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """Same join as the public /peer-mappings, plus the mapping's own id
+    so the admin panel can target a specific row for deletion."""
+    NgxIssuer = aliased(Issuer)
+    UsIssuer = aliased(Issuer)
+
+    stmt = (
+        select(PeerMapping, NgxIssuer, UsIssuer)
+        .join(NgxIssuer, PeerMapping.ngx_issuer_id == NgxIssuer.id)
+        .join(UsIssuer, PeerMapping.us_peer_issuer_id == UsIssuer.id)
+        .order_by(PeerMapping.id)
+    )
+    rows = db.execute(stmt).all()
+    return [
+        AdminPeerMappingOut(
+            id=mapping.id, ngx_ticker=ngx.ticker, ngx_name=ngx.name,
+            us_ticker=us.ticker, us_name=us.name,
+            sector=mapping.sector, mapping_confidence=float(mapping.mapping_confidence) if mapping.mapping_confidence is not None else None,
+        )
+        for mapping, ngx, us in rows
+    ]
+
+
+@app.post("/admin/peer-mappings", response_model=AdminPeerMappingOut)
+def admin_create_peer_mapping(
+    payload: PeerMappingCreateIn,
+    admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    ngx_issuer = _get_or_create_issuer(db, payload.ngx_ticker, "NGX")
+    # US issuers may already exist under NYSE/NASDAQ/US depending on which
+    # ingestion job touched them first — same lookup populate_peer_mappings.py
+    # does before falling back to creating a stub under "US".
+    us_issuer = (
+        db.query(Issuer)
+        .filter(Issuer.ticker == payload.us_ticker, Issuer.exchange.in_(["NYSE", "NASDAQ", "US"]))
+        .one_or_none()
+    )
+    if us_issuer is None:
+        us_issuer = _get_or_create_issuer(db, payload.us_ticker, "US")
+
+    existing = (
+        db.query(PeerMapping)
+        .filter(PeerMapping.ngx_issuer_id == ngx_issuer.id, PeerMapping.us_peer_issuer_id == us_issuer.id)
+        .one_or_none()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail=f"A mapping between {payload.ngx_ticker} and {payload.us_ticker} already exists")
+
+    mapping = PeerMapping(
+        ngx_issuer_id=ngx_issuer.id, us_peer_issuer_id=us_issuer.id,
+        sector=payload.sector, mapping_confidence=payload.mapping_confidence,
+    )
+    db.add(mapping)
+    db.commit()
+    db.refresh(mapping)
+
+    return AdminPeerMappingOut(
+        id=mapping.id, ngx_ticker=ngx_issuer.ticker, ngx_name=ngx_issuer.name,
+        us_ticker=us_issuer.ticker, us_name=us_issuer.name,
+        sector=mapping.sector, mapping_confidence=float(mapping.mapping_confidence) if mapping.mapping_confidence is not None else None,
+    )
+
+
+@app.delete("/admin/peer-mappings/{mapping_id}", response_model=MessageOut)
+def admin_delete_peer_mapping(mapping_id: int, admin: User = Depends(get_current_admin), db: Session = Depends(get_db)):
+    mapping = db.get(PeerMapping, mapping_id)
+    if mapping:
+        db.delete(mapping)
+        db.commit()
+    return MessageOut(message="Peer mapping deleted")
 
 
 @app.get("/benchmark", response_model=list[BenchmarkPoint])

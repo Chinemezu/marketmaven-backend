@@ -75,6 +75,21 @@ class PeerMappingOut(BaseModel):
     mapping_confidence: float | None = None
 
 
+class AdminPeerMappingOut(PeerMappingOut):
+    # Public PeerMappingOut has no id (the public endpoint has no reason to
+    # expose the FK row's own id) — the admin panel needs one to delete a
+    # specific mapping, hence a separate response model rather than adding
+    # id to the public one.
+    id: int
+
+
+class PeerMappingCreateIn(BaseModel):
+    ngx_ticker: str
+    us_ticker: str
+    sector: str | None = None
+    mapping_confidence: float | None = None
+
+
 class SourceRank(BaseModel):
     source: str
     article_count: int
